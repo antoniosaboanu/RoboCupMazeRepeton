@@ -1,0 +1,1197 @@
+import event, time, cyberpi, mbuild, mbot2, random  # librerie
+
+
+class Tile:
+    visited = False
+    isBlack = False
+    isBlue = False
+    hasTwo = False
+    hasOne = False
+    hasZero = False
+    droppedKit = 0
+    direction = 0
+    nextDirection = 0
+    x = 0
+    y = 0
+    lastNumber = 0
+    lastTile = 0
+
+    inclination_offset = 0  # inclinazione iniziale del robot
+    voltage_H = 0.6
+    voltage_S = 1
+    voltage_U = 1.4
+    voltage_green = 0.8
+    voltage_red = 2.2
+    voltage_yellow = 1.4
+    voltage_baffo_dx = 0.3
+    voltage_baffo_sx = 0.3
+    tolerance = 0.2
+    sx_baffo_port = "S2"
+    dx_baffo_port = "S1"
+    green_state = False
+    yellow_state = False
+    red_state = False
+    vel = 85  # velocità dei motori %
+    velAD = 0  # correzzione velocità motori %
+    velRot = 85  # velocità di rotazione motori %
+    new_tile_length = 420 * 3.6
+    new_wall_length = 80 * 3.6
+    front_distance = 20  # distanza muro cm frontale
+    lateral_distance = 20  # distanza muro cm laterale
+    back_distance = 20  # distanza muro cm posteriore
+    short_sleep = 0.15  # sleep breve da spammare un po'ovunque
+    restart_sleep = 10
+    black_sleep = 0.3
+    orto_sleep = 0.2
+    cam_sleep = 0.4
+    baffo_sleep = 0.2
+    servo_sleep = 0.5  # sleep per il movimento del servo
+    blu_sleep = 7
+    exit_bonus = 10
+    SERVO_PORT = "S3"  # uscita del servomotore
+    sx_baffo_port = "S2"  # ingresso analogico del finiìecorsa sinistro
+    dx_baffo_port = "S1"  # ingresso analogico del finecorsa destro
+    ramp = False
+    free_front = False
+    free_back = False
+    free_sx = False
+    free_dx = False
+
+    #colors
+    R = 0
+    G = 0
+    B = 0
+    Black_R_Soil = 10
+    Black_G_Soil = 10
+    Black_B_Soil = 10
+    Blue_R_Soil = 25
+    Blue_G_Soil = 47
+    Blue_B_Soil = 89
+    Checkpoint_R_Soil = 232
+    Checkpoint_G_Soil = 227
+    Checkpoint_B_Soil = 244
+    color = "white"
+    color_tolerance = 10
+
+
+    def __init__(self, number, direction, inclination_offset, droppedKit, lastNumber, lastTile):
+        self.number = number
+        self.direction = direction
+        self.inclination_offset = inclination_offset
+        self.droppedKit = droppedKit
+        self.lastNumber = lastNumber
+        self.lastTile = lastTile
+
+    def get_angle(self):  # ottieni il valore angolo asse y
+        return int(-cyberpi.get_yaw())
+
+    def drive_powers(self, dx, sx):  # funzione per far andare i motori
+
+        if dx > 100:
+            dx = 100
+        elif dx < -100:
+            dx = -100
+
+        if sx > 100:
+            sx = 100
+        elif sx < -100:
+            sx = -100
+
+        mbot2.drive_power(-dx, sx + self.velAD)  # motori con encoder
+        mbot2.motor_drive(dx, -sx - self.velAD)  # motori senza encoder
+
+    def set_direction(self, number):
+        self.nextDirection = (self.direction + number) % 4
+
+    def set_coordinates(self, oldTile):
+        if oldTile.nextDirection == 0:
+            self.x = oldTile.x
+            self.y = oldTile.y + 1
+        elif oldTile.nextDirection == 1:
+            self.x = oldTile.x + 1
+            self.y = oldTile.y
+        elif oldTile.nextDirection == 2:
+            self.x = oldTile.x
+            self.y = oldTile.y - 1
+        else:
+            self.x = oldTile.x - 1 
+            self.y = oldTile.y 
+
+    def set_Rgb_LightColor(self, lightColor):  # settta la luce del sensore rgb
+        mbuild.quad_rgb_sensor.set_led_color(lightColor, 1)
+
+    def resetGyro(self):  # reset del giroscopio del robot
+        cyberpi.reset_yaw()  # reset del gyroscopio dell' asse y
+
+    def get_enc(self):
+        return -mbot2.EM_get_angle("EM1")
+
+    def stop(self):  # arresta i motori
+        self.drive_powers(0, 0)  # funzione drive con motori a 0 %
+
+    def reset_enc(self):  # reset dell' encoder del robot
+        mbot2.EM_reset_angle("ALL")  # resetta l'encoder
+
+    def get_color(self):  # funzione colore pianombuild.quad_rgb_sensor.get_color_sta("R2", 1)  # colore piano
+        self.R = mbuild.quad_rgb_sensor.get_red("R1", 1)
+        self.G = mbuild.quad_rgb_sensor.get_green("R1", 1)
+        self.B = mbuild.quad_rgb_sensor.get_blue("R1", 1)
+
+    def set_color(self):  # funzione colore pianombuild.quad_rgb_sensor.get_color_sta("R2", 1)  # colore piano
+        self.get_color()
+        if self.R <= self.Black_R_Soil + self.color_tolerance and self.G <= self.Black_G_Soil + self.color_tolerance and self.B <= self.Black_B_Soil + self.color_tolerance:
+            self.color = "Black"
+        elif self.R >= self.Blue_R_Soil - self.color_tolerance and self.R <= self.Blue_R_Soil + self.color_tolerance and self.G >= self.Blue_G_Soil - self.color_tolerance and self.G <= self.Blue_G_Soil + self.color_tolerance and self.B >= self.Blue_B_Soil - self.color_tolerance and self.B <= self.Blue_B_Soil + self.color_tolerance:
+            self.color = "Blue"
+        elif self.get_under_distance() > 100:
+            self.color = "Checkpoint"
+        else:
+            self.color = "White"
+
+    def get_climb(self):  # funzione per avere inclinazione ° del robot
+        return int(cyberpi.get_pitch())  # ritorna il valore a
+
+    def set_ramp(self):
+        actual_inclination = self.get_climb()  # assegna a variabile la lettura dell' inclinazione
+        if actual_inclination > self.inclination_offset + 15 or actual_inclination < self.inclination_offset - 15:
+            self.ramp = True
+        else:
+            self.ramp = False
+
+    def voltage_sx(self):  # finecorsa destro  leggi analogico
+        return round(mbot2.read_analog(self.sx_baffo_port), 2)  # ritorna valore bool del sensore
+
+    def voltage_dx(self):  # finecorsa destro leggi analogico
+        return round(mbot2.read_analog(self.dx_baffo_port), 1)  # ritorna valore bool del sensore
+
+    def get_front_distance(self):
+        return int(mbuild.ranging_sensor.get_distance(2))
+
+    def set_free_front(self):  # sensore frontale
+        actual_front_distance = int(mbuild.ranging_sensor.get_distance(2))  # misura
+        # distanza_destra = int(mbuild.ranging_sensor.get_distance(2)) # misura
+        if actual_front_distance > self.front_distance:  # se distanza frontale  maggiore di soglia
+            self.free_front = True  # variabile bool dice davanti occupato da muro
+        else:  # altrimenti
+            self.free_front = False  # variabile bool dice davanti occupato da muro
+
+    def get_back_distance(self):
+        return int(mbuild.ranging_sensor.get_distance(4))
+
+    def get_under_distance(self):
+        return int(mbuild.ranging_sensor.get_distance(5))
+
+    def set_free_back(self):  # sensore posteriore
+        actual_back_distance = int(mbuild.ranging_sensor.get_distance(4))  # misura
+        # distanza_retro = int(mbuild.ranging_sensor.get_distance(4))
+        if actual_back_distance > self.back_distance:  # se distanza retro maggiore di soglia
+            self.free_back = True  # variabile bool dice dietro libero
+        else:  # altrimenti
+            self.free_back = False  # variabile bool dice dietro occupato da muro
+
+    def get_right_distance(self):
+        return int(mbuild.ranging_sensor.get_distance(1))
+
+    def set_free_sx(self):  # sensore sinistro
+        actual_sx_distance = int(mbuild.ranging_sensor.get_distance(3))  # distanza sinistra
+        if actual_sx_distance > self.lateral_distance:  # se sinistra libera
+            time.sleep(0.1)
+            if self.get_left_distance() > self.lateral_distance:
+                self.free_sx = True  # variabile bool dice destra libera
+            else:  # altrimenti
+                if actual_sx_distance <= 5:
+                    self.baffo_move_sx(False)
+                    self.stop()
+                    self.set_free_sx()
+                    self.stop()
+                self.free_sx = False  # sinstra libera false
+        else:  # altrimenti
+            if actual_sx_distance <= 5:
+                self.baffo_move_sx(False)
+                self.stop()
+                self.set_free_sx()
+                self.stop()
+            self.free_sx = False  # sinstra libera false
+
+    def get_left_distance(self):
+        return int(mbuild.ranging_sensor.get_distance(3))
+
+    def set_free_dx(self):  # sensore destro
+        actual_dx_distance = int(mbuild.ranging_sensor.get_distance(1))  # misura
+        # distanza_destra = int(mbuild.ranging_sensor.get_distance(1))
+        if actual_dx_distance > self.lateral_distance:  # se sinistra libera
+            time.sleep(0.1)
+            if self.get_right_distance() > self.lateral_distance:
+                self.free_dx = True  # variabile bool dice destra libera
+            else:  # altrimenti
+                if actual_dx_distance <= 5:
+                    self.baffo_move_dx(False)
+                    self.stop()
+                    self.set_free_dx()
+                    self.stop()
+                self.free_dx = False  # sinstra libera false
+        else:  # altrimenti
+            if actual_dx_distance <= 5:
+                self.baffo_move_dx(False)
+                self.stop()
+                self.set_free_dx()
+                self.stop()
+            self.free_dx = False  # sinstra libera false
+
+    def turn_Back(self, victim):  # inversione ad u
+        self.set_free_front()
+        if self.free_front:
+            self.resetGyro()  # resetta il giroscopio
+            time.sleep(self.short_sleep)  # sleep
+            while (self.get_angle() < 175):
+                self.drive_powers(self.velRot - self.velAD, -self.velRot + self.velAD)  # ruota su se stesso
+            self.stop()  # stop
+            time.sleep(self.short_sleep)  # sleep
+            self.set_free_back()
+            if not self.free_back:
+                self.orto_gyro()
+            else:
+                self.resetGyro()  # resetta il giroscopio
+            self.set_direction(2)
+        else:
+            self.turn_Right()
+            self.direction = self.nextDirection
+            if victim:
+                self.victim_routine_sx()
+            self.turn_Right()
+            self.direction = self.nextDirection - 2
+
+    def turn_Right(self):  # rotazione verso destra
+        self.resetGyro()  # resetta il giroscopio
+        while (self.get_angle() <= 85):  # finchè è minore di 85°
+            self.drive_powers(self.velRot, -self.velRot)  # ruota verso a destra
+        self.stop()  # stop
+        time.sleep(self.short_sleep)  # sleep
+        self.set_free_back()
+        if not self.free_back:
+            self.orto_gyro()
+        else:
+            self.resetGyro()  # resetta il giroscopio
+        self.set_direction(1)
+
+    def turn_Left(self):  # rotazione verso sinistra
+        self.resetGyro()  # resetta il giroscopio
+        time.sleep(self.short_sleep)  # sleep
+        while (self.get_angle() >= -85):  # finchè è maggiore di -85°
+            self.drive_powers(-self.velRot, self.velRot)  # ruota verso sinistra
+        self.stop()  # stop
+        time.sleep(self.short_sleep)  # sleep
+        self.set_free_back()
+        if not self.free_back:
+            self.orto_gyro()
+        else:
+            self.resetGyro()  # resetta il giroscopio
+        self.set_direction(-1)
+
+    def orto_gyro(self):  # resetta sul muro
+        self.set_free_back()
+        if not self.free_back:  # se distanza back < di distanza retro parametro
+            self.drive_powers(-self.vel, -self.vel)  # va indietro
+            time.sleep(self.orto_sleep * 6)  # aspetta
+            self.resetGyro()  # resetta il giroscopio
+            self.stop()  # stop
+            time.sleep(self.short_sleep)  # sleep
+            self.reset_enc()
+            while (self.get_enc() < self.new_wall_length):  # avanza fino a centro tile
+                self.drive_powers(self.vel, self.vel)  # avanza
+            self.reset_enc()  # resetta encoder
+            self.stop()
+            self.orto_sleep = 0.2
+        else:
+            self.stop()  # fermati
+            # self.resetGyro()  # resetta il giroscopi
+            # self.reset_enc()  # resetta encoder
+
+    def black_Detected(self):  # voragine
+
+        self.stop()
+        self.drive_powers(-self.vel, -self.vel)  # va indietro
+        cyberpi.display.show_label('VORAGINE', 16, "top_right", index=1)  # stampa voragine
+        time.sleep(self.black_sleep * 2)
+        self.stop()  # stop
+        time.sleep(self.short_sleep)  # aspetta
+
+    def blue(self):  # blu
+        cyberpi.display.show_label('BLU', 16, "top_mid", index=1)  # stampa wait
+        time.sleep(self.short_sleep)  # aspetta
+        self.stop()
+        time.sleep(self.blu_sleep)  # aspetta
+        self.reset_enc()
+        self.isBlue = True
+        cyberpi.led.on(0, 0, 0, "all")
+
+    def exit(self):  # blu
+        cyberpi.display.show_label('EXIT', 16, "top_mid", index=1)  # stampa wait
+        for i in range(15):
+            cyberpi.led.on(0, 127, 255, "all")
+            time.sleep(1)
+            cyberpi.led.on(0, 0, 0, "all")
+            time.sleep(0.5)
+
+        self.stop()
+        self.reset_enc()
+
+    def baffo_move_dx(self, obstacle):
+        self.resetGyro()
+        while (self.get_angle() <= 15):  # finchè è minore di 85°
+            self.drive_powers(self.velRot, -self.velRot)  # ruota verso a destra
+        self.stop()
+        self.set_free_back()
+        if not self.free_back:
+            self.orto_sleep = 0.4
+            self.orto_gyro()
+        else:
+
+            self.drive_powers(-self.vel, -self.vel)
+            time.sleep(self.baffo_sleep * 3)
+            self.stop()
+            time.sleep(self.baffo_sleep)
+            while (self.get_angle() >= 0):
+                self.drive_powers(-self.velRot, self.velRot)  # ruota verso a sinistra
+            self.stop()
+            time.sleep(self.short_sleep)
+            self.drive_powers(self.vel, self.vel)
+            time.sleep(self.baffo_sleep * 2.2)
+            self.stop()
+            time.sleep(self.short_sleep)
+
+    def baffo_move_sx(self, obstacle):
+        self.resetGyro()
+        while (self.get_angle() >= -15):  # finchè è minore di 85°
+            self.drive_powers(-self.velRot, self.velRot)  # ruota verso a sinistra
+        self.stop()
+        self.set_free_back()
+        if not self.free_back:
+            self.orto_sleep = 0.4
+            self.orto_gyro()
+        else:
+
+            time.sleep(self.baffo_sleep)
+            self.drive_powers(-self.vel, -self.vel)
+            time.sleep(self.baffo_sleep * 3)
+            self.stop()
+            time.sleep(self.baffo_sleep)
+            while (self.get_angle() <= 0):  # finchè è minore di 85°
+                self.drive_powers(self.velRot, -self.velRot)  # ruota verso a destra
+            self.stop()
+            time.sleep(self.baffo_sleep)
+            self.drive_powers(self.vel, self.vel)
+            time.sleep(self.baffo_sleep * 2.2)
+            self.stop()
+            time.sleep(self.short_sleep)
+
+    def servo_move(self, Nvolte, dx):  # movimento del servo
+        cyberpi.audio.play('beeps')
+        if Nvolte == 0:
+            for i in range(5):
+                cyberpi.led.on(52, 255, 2, "all")
+                time.sleep(1)
+                cyberpi.led.on(0, 0, 0, "all")
+                time.sleep(0.5)
+        if Nvolte == 1:
+            for i in range(5):
+                cyberpi.led.on(255, 220, 5, "all")
+                time.sleep(1)
+                cyberpi.led.on(0, 0, 0, "all")
+                time.sleep(0.5)
+        if Nvolte == 2:
+            for i in range(5):
+                cyberpi.led.on(177, 1, 1, "all")
+                time.sleep(1)
+                cyberpi.led.on(0, 0, 0, "all")
+                time.sleep(0.5)
+
+        if Nvolte != 0 and self.droppedKit < 12:
+
+            self.stop()
+            if dx:
+                while (self.get_angle() >= -85):  # finchè è maggiore di -85°
+                    self.drive_powers(-self.velRot, self.velRot)  # ruota verso sinistra
+                self.stop()  # stop
+                self.drive_powers(-self.vel, -self.vel)
+                time.sleep(0.2)
+            else:
+                while (self.get_angle() <= 85):  # finchè è minore di 85°
+                    self.drive_powers(self.velRot, -self.velRot)  # ruota verso a destra
+                self.stop()  # stop
+                self.drive_powers(-self.vel, -self.vel)
+                time.sleep(0.2)
+
+        for count in range(Nvolte):  # ciclo for con numero di volte
+            if self.droppedKit < 12:
+                mbot2.servo_set(130, self.SERVO_PORT)  # movimento servo di 120
+                time.sleep(self.servo_sleep)  # sleep del servo
+                mbot2.servo_set(-130, self.SERVO_PORT)  # movimento direzione opposta
+                time.sleep(self.servo_sleep)  # sleep del servo
+
+        if Nvolte != 0 and self.droppedKit < 12:
+            if dx:
+                self.drive_powers(self.vel, self.vel)
+                time.sleep(0.2)
+                while (self.get_angle() <= 0):  # finchè è minore di 85°
+                    self.drive_powers(self.velRot, -self.velRot)  # ruota verso a destra
+                self.stop()  # stop
+            else:
+                self.drive_powers(self.vel, self.vel)
+                time.sleep(0.2)
+                while (self.get_angle() >= 0):  # finchè è maggiore di -85°
+                    self.drive_powers(-self.velRot, self.velRot)  # ruota verso sinistra
+                self.stop()  # stop
+
+            self.orto_gyro()
+
+            self.stop()
+        cyberpi.audio.play('beeps')
+        time.sleep(1)
+        cyberpi.led.on(0, 0, 0, "all")
+        self.droppedKit = self.droppedKit + Nvolte
+
+    def screen(self):  # schermo e misure
+        # cyberpi.display.show_label(get_angle(), 24, "bottom_mid", index= 0)  # giroscopio
+        # cyberpi.display.show_label(self.get_angle(), 24, "bottom_mid", index=0)  # giroscopio
+        cyberpi.display.show_label(self.get_left_distance(), 22, "mid_left", index=5)  # distanza sinistra
+        cyberpi.display.show_label(self.get_back_distance(), 22, "center", index=6)  # distranza frontalr
+        cyberpi.display.show_label(self.get_right_distance(), 22, "mid_right", index=7)  # distanza destra
+        cyberpi.display.show_label(self.get_color(), 16, "top_left", index=2)  # colore
+        # cyberpi.display.show_label(self.get_back_distance(), 22, "bottom_center", index=7)  # distanza destra
+        # cyberpi.display.show_label(distanza_b(), 22, "bottom_left", index= 4) # distanza retro
+        # cyberpi.display.show_label(can_turn_right, 22, "bottom_right", index= 3) # distanza retro
+        cyberpi.display.show_label(self.voltage_dx(), 22, "bottom_left", index=4)  # distanza retro
+        cyberpi.display.show_label(self.voltage_sx(), 22, "bottom_right", index=3)  # distanza retro
+        # cyberpi.display.show_label(tile, 22, "bottom_right", index= 4) # stampa il numero della tile
+
+    def victim_routine_dx(self):
+        if not self.isBlue:
+            time.sleep(self.cam_sleep)
+            for i in range(7):
+                # self.screen()
+                actual_voltage = self.voltage_dx()
+                if self.get_right_distance() < 15:
+                    if actual_voltage > self.tolerance:
+                        if actual_voltage > self.voltage_yellow - self.tolerance and actual_voltage < self.voltage_yellow + self.tolerance and not self.hasOne:
+                            self.servo_move(1, True)
+                            self.hasOne = True
+                            time.sleep(0.1)
+                        elif actual_voltage > self.voltage_green - self.tolerance and actual_voltage < self.voltage_green + self.tolerance and not self.hasZero:
+                            self.servo_move(0, True)
+                            self.hasZero = True
+                            time.sleep(0.1)
+                        elif actual_voltage > self.voltage_red - self.tolerance and actual_voltage < self.voltage_red + self.tolerance and not self.hasTwo:
+                            self.servo_move(2, True)
+                            self.hasTwo = True
+                            time.sleep(0.1)
+                    else:
+                        self.drive_powers(-self.vel, -self.vel)
+                        time.sleep(0.1)
+                        self.stop()
+
+    def victim_routine_sx(self):
+        if not self.isBlue:
+            time.sleep(self.cam_sleep)
+            for i in range(7):
+                actual_voltage = self.voltage_sx()
+                if self.get_left_distance() < 15:
+                    if actual_voltage > self.tolerance:
+                        if actual_voltage > self.voltage_yellow - self.tolerance and actual_voltage < self.voltage_yellow + self.tolerance and not self.hasOne:
+                            self.servo_move(1, False)
+                            self.hasOne = True
+                            time.sleep(0.1)
+                        elif actual_voltage > self.voltage_green - self.tolerance and actual_voltage < self.voltage_green + self.tolerance and not self.hasZero:
+                            self.servo_move(0, False)
+                            self.hasZero = True
+                            time.sleep(0.1)
+                        elif actual_voltage > self.voltage_red - self.tolerance and actual_voltage < self.voltage_red + self.tolerance and not self.hasTwo:
+                            self.servo_move(2, False)
+                            self.hasTwo = True
+                            time.sleep(0.1)
+                    else:
+                        self.drive_powers(-self.vel, -self.vel)
+                        time.sleep(0.1)
+                        self.stop()
+
+    def go_straight(self):
+        target = 0
+        self.drive_powers(self.vel - (self.get_angle() - target), self.vel + (self.get_angle() - target))
+
+    def climb_ramp(self):
+        while self.ramp == True:
+            cyberpi.display.show_label('RAMP', 16, "top_right", index=1)
+
+            if self.get_climb() > 0:
+                self.vel = 100
+                self.go_straight()
+            elif self.get_climb() < 0:
+                self.vel = 65
+                self.go_straight()
+            self.set_color()
+            if (self.color == "Black"):
+                while self.ramp == True:
+                    self.drive_powers(-self.vel, -self.vel)
+                    self.set_ramp()
+
+                break
+
+            self.set_ramp()
+        self.vel = 85
+        self.go_straight()
+        time.sleep(0.6)
+        
+        self.reset_enc()
+
+    def set_measures(self):
+        self.set_free_sx()
+        self.set_free_dx()
+        self.set_free_front()
+        self.set_free_back()
+        self.set_color()
+        self.set_ramp()
+
+
+class Map:
+    visited = [[], [], [], []]  # stands for quadDxUp, quadDxDown, quadSxUp, quadSxDown
+    unvisited = [[], [], [], []]  # stands for quadDxUp, quadDxDown, quadSxUp, quadSxDown
+    blackTiles = [[], [], [], []]  # stands for quadDxUp, quadDxDown, quadSxUp, quadSxDown
+    checkpoints = [[], [], [], []]  # stands for quadDxUp, quadDxDown, quadSxUp, quadSxDown
+
+    tileDx = None
+    tileSx = None
+    tileF = None
+    tileB = None
+
+    count = 0
+
+    tile = None
+    justRamped = False
+    justBlack = False
+
+    def __init__(self, tile):
+        self.tile = tile
+
+    def addTileVisited(self, a):
+        
+        if a.x >= 0:
+            if a.y >= 0:
+                self.visited[0].append(a)
+            else:
+                self.visited[1].append(a)
+        else:
+            if a.y >= 0:
+                self.visited[2].append(a)
+            else:
+                self.visited[3].append(a)
+
+    def addTileUnvisited(self, a):
+        if a.x >= 0:
+            if a.y >= 0:
+                self.unvisited[0].append(a)
+            else:
+                self.unvisited[1].append(a)
+        else:
+            if a.y >= 0:
+                self.unvisited[2].append(a)
+            else:
+                self.unvisited[3].append(a)
+
+    def addBlackTile(self, a):
+        if a.x >= 0:
+            if a.y >= 0:
+                self.blackTiles[0].append(a)
+            else:
+                self.blackTiles[1].append(a)
+        else:
+            if a.y >= 0:
+                self.blackTiles[2].append(a)
+            else:
+                self.blackTiles[3].append(a)
+
+
+
+    def replaceVisited(self, a):
+
+        if a.x >= 0:
+            if a.y >= 0:
+                i = 0
+            else:
+                i = 1
+        else:
+            if a.y >= 0:
+                i = 2
+            else:
+                i = 3
+
+        number = -1
+
+        for j in range(len(self.visited[i])):
+            if self.visited[i][j].x == a.x and self.visited[i][j].y == a.y:
+                number = self.visited[i][j].number
+                #self.visited[i][j] = a
+                break
+
+        return number
+
+    def replaceUnvisited(self, a):
+
+        if a.x >= 0:
+            if a.y >= 0:
+                i = 0
+            else:
+                i = 1
+        else:
+            if a.y >= 0:
+                i = 2
+            else:
+                i = 3
+
+        for j in range(len(self.unvisited[i])):
+            if self.unvisited[i][j].x == a.x and self.unvisited[i][j].y == a.y:
+                self.unvisited[i][j] = a
+                break
+
+    def replaceBlackTile(self, a):
+
+        if a.x >= 0:
+            if a.y >= 0:
+                i = 0
+            else:
+                i = 1
+        else:
+            if a.y >= 0:
+                i = 2
+            else:
+                i = 3
+
+        for j in range(len(self.blackTiles[i])):
+            if self.blackTiles[i][j].x == a.x and self.blackTiles[i][j].y == a.y:
+                self.blackTiles[i][j] = a
+                break
+
+
+    def removeUnvisitedTile(self, a):
+
+        if a.x >= 0:
+            if a.y >= 0:
+                i = 0
+            else:
+                i = 1
+        else:
+            if a.y >= 0:
+                i = 2
+            else:
+                i = 3
+
+        for j in range(len(self.unvisited[i])):
+            if self.unvisited[i][j].x == a.x and self.unvisited[i][j].y == a.y:
+                for y in range(j, len(self.unvisited[i]) - 1):
+                    self.unvisited[i][y] = self.unvisited[i][y + 1]
+                self.unvisited[i].pop()
+                break
+
+    def find(self, array, a):
+
+        if a.x >= 0:
+            if a.y >= 0:
+                i = 0
+            else:
+                i = 1
+        else:
+            if a.y >= 0:
+                i = 2
+            else:
+                i = 3
+
+        for j in array[i]:
+            if j.x == a.x and j.y == a.y:
+                return True
+
+        return False
+
+    def getVisitedTile(self, x, y):
+
+        if x >= 0:
+            if y >= 0:
+                i = 0
+            else:
+                i = 1
+        else:
+            if y >= 0:
+                i = 2
+            else:
+                i = 3
+
+        for j in self.visited[i]:
+            if j.x == x and j.y == y:
+                return j
+
+        return None
+
+    def has(self, array, number):
+        for i in array:
+            if i == number:
+                return True
+
+        return False
+
+    def screen2(self, tile):  # schermo e misure
+        # cyberpi.display.show_label(get_angle(), 24, "bottom_mid", index= 0)  # giroscopio
+        cyberpi.display.show_label(
+            len(self.unvisited[0]) + len(self.unvisited[1]) + len(self.unvisited[2]) + len(self.unvisited[3]), 24,
+            "top_left", index=0)  # giroscopio
+        if self.tileSx is not None:
+            cyberpi.display.show_label(self.tileSx.number, 22, "mid_left", index=5)  # distanza sinistra
+        else:
+            cyberpi.display.show_label("None", 22, "mid_left", index=5)  # distanza sinistra
+        cyberpi.display.show_label(tile.number, 22, "center", index=6)  # distranza frontalr
+        if self.tileDx is not None:
+            cyberpi.display.show_label(self.tileDx.number, 22, "mid_right", index=7)  # distanza destra
+        else:
+            cyberpi.display.show_label("None", 22, "mid_right", index=7)  # distanza destra
+        if self.tileF is not None:
+            cyberpi.display.show_label(self.tileF.number, 16, "top_mid", index=2)  # colore
+        else:
+            cyberpi.display.show_label("None", 16, "top_mid", index=2)  # colore
+        # cyberpi.display.show_label(distanza_b(), 22, "bottom_left", index= 4) # distanza retro
+        # cyberpi.display.show_label(can_turn_right, 22, "bottom_right", index= 3) # distanza retro
+        if self.tileB is not None:
+            cyberpi.display.show_label(self.tileB.number, 22, "bottom_mid", index=1)
+        else:
+            cyberpi.display.show_label("None", 22, "bottom_mid", index=1)
+
+    def modulo(self, a):
+        if a < 0:
+            return a * -1
+        else:
+            return a
+
+    def start2(self):
+
+        if self.justRamped:
+            self.tile.set_coordinates(self.tile)
+            self.justRamped = False
+
+        if self.find(self.visited, self.tile):
+            can_victim = False
+        else:
+            can_victim = True
+
+        if self.tile.x == 0 and self.tile.y == 0 and (
+                len(self.visited[0]) + len(self.visited[1]) + len(self.visited[2]) + len(self.visited[3])) != 0 and (
+                len(self.unvisited[0]) + len(self.unvisited[1]) + len(self.unvisited[2]) + len(self.unvisited[3])) == 0:
+            self.tile.exit()
+
+        if self.justBlack:
+            self.justBlack = False
+            self.tile.orto_gyro()
+
+        choice = 2
+        self.tileDx = None
+        self.tileSx = None
+        self.tileF = None
+        self.tileB = None
+
+        choices = []
+
+        self.tile.set_color()
+
+        if self.tile.color == "Blue":
+            self.tile.blue()
+        elif self.tile.color == "Checkpoint":
+            cyberpi.display.show_label('CHECK', 16, "top_mid", index=1)  # stampa wait
+            
+
+        self.tile.set_measures()
+
+        self.tile.reset_enc()
+
+        if self.tile.free_dx:
+            self.tile.set_direction(1)
+            self.tileDx = Tile(-1, self.tile.nextDirection, self.tile.inclination_offset, self.tile.droppedKit,
+                               self.tile.number, self.tile.number)
+            self.tileDx.set_coordinates(self.tile)
+            if not self.find(self.visited, self.tileDx):
+                if self.find(self.unvisited, self.tileDx):
+                    choices.append(1)
+                    self.replaceUnvisited(self.tileDx)
+                elif not self.find(self.blackTiles, self.tileDx):
+                    choices.append(1)
+                    if not (self.tileDx.x == 0 and self.tileDx.y == 0):
+                        self.addTileUnvisited(self.tileDx)
+                else:
+                    self.tileDx.isBlack = True
+                    self.replaceBlackTile(self.tileDx)
+
+            else:
+                self.tileDx.number = self.replaceVisited(self.tileDx)
+        elif can_victim:
+            self.tile.victim_routine_dx()
+
+        if self.tile.free_sx:
+            self.tile.set_direction(-1)
+            self.tileSx = Tile(-1, self.tile.nextDirection, self.tile.inclination_offset, self.tile.droppedKit,
+                               self.tile.number, self.tile.number)
+            self.tileSx.set_coordinates(self.tile)
+            if not self.find(self.visited, self.tileSx):
+                if self.find(self.unvisited, self.tileSx):
+
+                    choices.append(3)
+                    self.replaceUnvisited(self.tileSx)
+                elif not self.find(self.blackTiles, self.tileSx):
+                    choices.append(3)
+                    if not (self.tileSx.x == 0 and self.tileSx.y == 0):
+                        self.addTileUnvisited(self.tileSx)
+                else:
+                    self.tileSx.isBlack = True
+                    self.replaceBlackTile(self.tileSx)
+
+            else:
+                self.tileSx.number = self.replaceVisited(self.tileSx)
+
+        elif can_victim:
+            self.tile.victim_routine_sx()
+
+        if self.tile.free_front:
+            self.tile.set_direction(0)
+            self.tileF = Tile(-1, self.tile.nextDirection, self.tile.inclination_offset, self.tile.droppedKit,
+                              self.tile.number, self.tile.number)
+            self.tileF.set_coordinates(self.tile)
+            if not self.find(self.visited, self.tileF):
+                if self.find(self.unvisited, self.tileF):
+
+                    choices.append(0)
+                    self.replaceUnvisited(self.tileF)
+                elif not self.find(self.blackTiles, self.tileF):
+                    choices.append(0)
+                    if not (self.tileF.x == 0 and self.tileF.y == 0):
+                        self.addTileUnvisited(self.tileF)
+                else:
+                    self.tileF.isBlack = True
+                    self.replaceBlackTile(self.tileF)
+
+            else:
+                self.tileF.number = self.replaceVisited(self.tileF)
+
+        if self.tile.free_back:
+            self.tile.set_direction(2)
+            self.tileB = Tile(-1, self.tile.nextDirection, self.tile.inclination_offset, self.tile.droppedKit,
+                              self.tile.number, self.tile.number)
+            self.tileB.set_coordinates(self.tile)
+            if not self.find(self.visited, self.tileB):
+                if self.find(self.unvisited, self.tileB):
+                    choices.append(2)
+                    self.replaceUnvisited(self.tileB)
+                elif not self.find(self.blackTiles, self.tileB):
+                    choices.append(2)
+                    if not (self.tileB.x == 0 and self.tileB.y == 0):
+                        self.addTileUnvisited(self.tileB)
+                else:
+                    self.tileB.isBlack = True
+                    self.replaceBlackTile(self.tileB)
+
+            else:
+                self.tileB.number = self.replaceVisited(self.tileB)
+
+        if self.find(self.visited, self.tile):
+            self.replaceVisited(self.tile)
+        else:
+            self.tile.visited = True
+            self.addTileVisited(self.tile)
+            self.removeUnvisitedTile(self.tile)  # arrivato qui, ricontrolla
+        
+        self.screen2(self.tile)
+
+        if len(choices) > 0:
+            if self.has(choices, 1):
+
+                choice = 1
+            elif self.has(choices, 0):
+                choice = 0
+            elif self.has(choices, 3):
+                choice = 3
+            elif self.has(choices, 2):
+                choice = 2
+        else:
+            choices = []
+
+            if self.tile.free_dx and not self.tileDx.isBlack:
+                choices.append(self.tileDx)
+
+            if self.tile.free_sx and not self.tileSx.isBlack:
+                choices.append(self.tileSx)
+
+            if self.tile.free_front and not self.tileF.isBlack:
+                choices.append(self.tileF)
+
+            if self.tile.free_back and not self.tileB.isBlack:
+                choices.append(self.tileB)
+
+            if len(choices) == 0:
+                choice = 2
+            elif (len(self.unvisited[0]) + len(self.unvisited[1]) + len(self.unvisited[2]) + len(
+                    self.unvisited[3])) == 0:
+                minimo = 100
+                choice = 2
+
+                for i in range(len(choices)):
+                    if choices[i].number < minimo:
+                        minimo = choices[i].number
+                        if self.tileDx is not None:
+                            if choices[i].x == self.tileDx.x and choices[i].y == self.tileDx.y:
+                                choice = 1
+                        if self.tileSx is not None:
+                            if choices[i].x == self.tileSx.x and choices[i].y == self.tileSx.y:
+                                choice = 3
+                        if self.tileF is not None:
+                            if choices[i].x == self.tileF.x and choices[i].y == self.tileF.y:
+                                choice = 0
+                        if self.tileB is not None:
+                            if choices[i].x == self.tileB.x and choices[i].y == self.tileB.y:
+                                choice = 2
+            else:
+
+                goal = 100
+
+                if self.tile.x >= 0 and self.tile.y >= 0:
+                    if len(self.unvisited[0]) > 0:
+                        goal = self.unvisited[0][0].lastTile
+                elif self.tile.x >= 0 and self.tile.y <= 0:
+                    if len(self.unvisited[1]) > 0:
+                        goal = self.unvisited[1][0].lastTile
+                elif self.tile.x <= 0 and self.tile.y >= 0:
+                    if len(self.unvisited[2]) > 0:
+                        goal = self.unvisited[2][0].lastTile
+                elif self.tile.x <= 0 and self.tile.y <= 0:
+                    if len(self.unvisited[3]) > 0:
+                        goal = self.unvisited[3][0].lastTile
+
+                if goal == 100:
+                    for i in range(len(self.unvisited)):
+                        if len(self.unvisited[i]) > 0:
+                            goal = self.unvisited[i][0].lastTile
+
+                difDx = 100
+                difSx = 100
+                difF = 100
+                difB = 100
+
+                if self.tileDx is not None and not self.tileDx.isBlack:
+                    difDx = self.modulo(goal - self.tileDx.number)
+                if self.tileSx is not None and not self.tileSx.isBlack:
+                    difSx = self.modulo(goal - self.tileSx.number)
+                if self.tileF is not None and not self.tileF.isBlack:
+                    difF = self.modulo(goal - self.tileF.number)
+                if self.tileB is not None and not self.tileB.isBlack:
+                    difB = self.modulo(goal - self.tileB.number)
+
+                if difDx <= difSx:
+                    if difDx <= difF:
+                        if difDx <= difB:
+                            cyberpi.led.on(255, 0, 0, "all")
+                            choice = 1
+                        else:
+                            cyberpi.led.on(255, 255, 0, "all")
+                            choice = 2
+                    elif difB < difF:
+                        cyberpi.led.on(255, 255, 0, "all")
+                        choice = 2
+                    else:
+                        cyberpi.led.on(0, 255, 0, "all")
+                        choice = 0
+                elif difSx < difF:
+                    if difSx <= difB:
+                        cyberpi.led.on(0, 0, 255, "all")
+                        choice = 3
+                    else:
+                        cyberpi.led.on(255, 255, 0, "all")
+                        choice = 2
+                elif difF <= difB:
+                    cyberpi.led.on(0, 255, 0, "all")
+                    choice = 0
+                else:
+                    cyberpi.led.on(255, 255, 0, "all")
+                    choice = 2
+
+        if choice == 1:
+
+            self.tile.turn_Right()
+        elif choice == 3:
+
+            self.tile.turn_Left()
+        elif choice == 2:
+
+            self.tile.turn_Back(can_victim)
+
+        else:
+            self.tile.set_direction(0)
+
+        if can_victim:
+            self.tile.victim_routine_sx()
+            self.tile.victim_routine_dx()
+
+        self.replaceVisited(self.tile)
+
+        self.tile.reset_enc()
+
+        while self.tile.get_enc() < self.tile.new_tile_length:  # se encoder minore di soglia
+            cyberpi.display.show_label('DRIVING', 16, "top_right", index=1)
+
+            actual_voltage_dx = self.tile.voltage_dx()
+            actual_voltage_sx = self.tile.voltage_sx()
+
+            if actual_voltage_dx < self.tile.voltage_baffo_dx:
+                self.tile.stop()
+                time.sleep(self.tile.short_sleep)
+                self.tile.baffo_move_dx(True)
+            elif actual_voltage_sx < self.tile.voltage_baffo_sx:
+                self.tile.stop()
+                time.sleep(self.tile.short_sleep)
+                self.tile.baffo_move_sx(True)
+            self.tile.set_color()
+            if (self.tile.color == "Black"):
+                if self.tile.get_climb() < 5 and self.tile.get_climb() > -5:
+                    self.justBlack = True
+                    self.tile.stop()
+                    self.tile.black_Detected()
+                    time.sleep(self.tile.short_sleep)  # aspetta
+                    self.tile.stop()
+                    if choice == 1:
+                        self.tileDx.isBlack = True
+                        self.removeUnvisitedTile(self.tileDx)
+                        self.addBlackTile(self.tileDx)
+                    elif choice == 0:
+                        self.tileF.isBlack = True
+                        self.removeUnvisitedTile(self.tileF)
+                        self.addBlackTile(self.tileF)
+                    elif choice == 3:
+                        self.tileSx.isBlack = True
+                        self.removeUnvisitedTile(self.tileSx)
+                        self.addBlackTile(self.tileSx)
+                    else:
+                        self.tileB.isBlack = True
+                        self.removeUnvisitedTile(self.tileB)
+                        self.addBlackTile(self.tileB)
+
+                    self.tile.direction = self.tile.nextDirection
+                    return None
+
+            self.tile.go_straight()
+
+
+
+            if self.tile.get_front_distance() < 16:
+                if self.tile.get_front_distance() < 15:
+                    break
+
+        self.tile.set_ramp()
+        if self.tile.ramp:
+            self.tile.climb_ramp()
+            self.tile.stop()
+            myRamp = Tile(self.tile.number, 0, 0, 0, 0, 0)
+            myRamp.set_coordinates(self.tile)
+            self.removeUnvisitedTile(myRamp)
+            self.addTileVisited(myRamp)
+            self.justRamped = True
+            
+
+
+
+        self.tile.stop()
+        cyberpi.display.show_label('STOP', 16, "top_right", index=2)
+        cyberpi.led.on(0, 0, 0, "all")
+
+        if self.tile.number > self.tile.lastNumber:
+            self.tile.lastNumber = self.tile.number
+
+        if choice == 1:
+            self.tileDx.direction = self.tile.nextDirection
+            self.tileDx.nextDirection = self.tile.nextDirection
+            self.tileDx.lastNumber = self.tile.lastNumber
+            if not self.find(self.visited, self.tileDx) or self.justRamped:
+                self.tileDx.number = self.tile.lastNumber + 1
+            self.tile = self.tileDx
+        elif choice == 0:
+            self.tileF.direction = self.tile.nextDirection
+            self.tileF.nextDirection = self.tile.nextDirection
+            self.tileF.lastNumber = self.tile.lastNumber
+            if not self.find(self.visited, self.tileF) or self.justRamped:
+                self.tileF.number = self.tile.lastNumber + 1
+            self.tile = self.tileF
+        elif choice == 3:
+            self.tileSx.direction = self.tile.nextDirection
+            self.tileSx.nextDirection = self.tile.nextDirection
+            self.tileSx.lastNumber = self.tile.lastNumber
+            if not self.find(self.visited, self.tileSx) or self.justRamped:
+                self.tileSx.number = self.tile.lastNumber + 1
+            self.tile = self.tileSx
+        else:
+            self.tileB.direction = self.tile.nextDirection
+            self.tileB.nextDirection = self.tile.nextDirection
+            self.tileB.lastNumber = self.tile.lastNumber
+            if not self.find(self.visited, self.tileB) or self.justRamped:
+                self.tileB.number = self.tile.lastNumber + 1
+            self.tile = self.tileB
+
+
+
+def set_Rgb_LightColor(lightColor):  # settta la luce del sensore rgb
+    mbuild.quad_rgb_sensor.set_led_color(lightColor, 1)
+
+
+def new_inizialize():
+    cyberpi.led.on(177, 1, 1, "all")
+    set_Rgb_LightColor("red")  # setta luce rgb
+    time.sleep(1)
+    cyberpi.console.set_font(12)
+    cyberpi.audio.set_vol(2)
+    cyberpi.display.show_label("INIZIALIZE", 28, "center", index=6)  # distranza frontalr
+    cyberpi.display.show_label(cyberpi.get_battery(), 28, "top_left", index=2)  # colore
+    time.sleep(1)
+    cyberpi.audio.play('beeps')
+    time.sleep(0.2)
+    cyberpi.led.on(52, 255, 2, "all")
+    set_Rgb_LightColor("blue")  # setta luce rgb
+    cyberpi.led.on(0, 0, 0, "all")
+
+
+tile2 = Tile(0, 0, 0, 0, 0, 0)
+
+
+@event.start  # all' accensione del robot
+def on_start():  # funzione on start
+    global tile2
+
+    new_inizialize()  # inizializza
+
+    while True:
+        cyberpi.display.show_label(tile2.voltage_dx(), 28, "bottom_right", index=2)  # colore
+        cyberpi.display.show_label(tile2.voltage_sx(), 28, "bottom_left", index=2)  # colore
+
+@event.is_press('a')  # funzione bottone a
+def is_btn_press1():
+    global tile2
+
+    time.sleep(3)
+
+    tile2.inclination_offset = tile2.get_climb()
+    tile2.resetGyro()
+
+    myMap = Map(tile2)
+
+    while True:
+        myMap.start2()
+
+
+
+
+
+
+
+
+
+
+
+
+
