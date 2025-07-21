@@ -155,7 +155,7 @@ class Tile:
         else:
             self.ramp = False
 
-    def voltage_sx(self):  # finecorsa destro  leggi analogico
+    def voltage_sx(self):  # finecorsa sinistro  leggi analogico
         return round(mbot2.read_analog(self.sx_baffo_port), 1)  # ritorna valore bool del sensore
 
     def voltage_dx(self):  # finecorsa destro leggi analogico
